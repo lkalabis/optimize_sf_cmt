@@ -42,7 +42,7 @@ python analyze_cmt.py [options]
 
 ## Examples
 ```sh
-python script.py -l MyCustomMetadataType1__mdt MyCustomMetadataType2__mdt
+python analyze_cmt.py -l MyCustomMetadataType1__mdt MyCustomMetadataType2__mdt
 ```
 
 ```sh
