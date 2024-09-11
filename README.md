@@ -23,6 +23,16 @@ This script is designed to analyze your Salesforce Custome Metadata. It retrieve
 ## Usage
 
 You can run the script with various command-line arguments to perform different tasks related to Salesforce metadata analysis.
+The best way to run it, is to copy the script into your `sfdx` folder. Since it uses the `sf` CLI without any additional parameters you have to have it in the same folder, or subfolders of your sfdx project.
+Usually, I have such scripts in the `scripts` folder of my sfdx project.
+```sh
+.
+..
+- config
+- force-app
+- scripts
+  - analyze_cmt.py
+```
 
 ### Command-Line Arguments
 
