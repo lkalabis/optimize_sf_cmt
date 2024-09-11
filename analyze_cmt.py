@@ -26,7 +26,7 @@ def sObject_get_describe(sObject):
 
     Returns:
         tuple: A tuple containing the name of the sObject and a list of dictionaries with field information
-               (name, length, type, digits, and precision) for fields that exceed defined limits.
+               (name, length, type, digits, precision, extraTypeInfo) for fields that exceed defined limits.
                Returns an empty list if the command fails.
     """
 
@@ -56,7 +56,8 @@ def sObject_get_describe(sObject):
                         'length': field.get('length'),
                         'type': field.get('type'),
                         'digits': field.get('type'),
-                        'precision': field.get('precision')
+                        'precision': field.get('precision'),
+                        'extraTypeInfo': field.get('extraTypeInfo')
                     }
                     field_information.append(field_info)
 
@@ -119,21 +120,22 @@ def filter_cmdt_out(json):
 
 def write_dict_to_csv(data, filename):
     """
-    This method writes a dictionary of field statistics to a CSV file. The dictionary contains field names
-    as keys and their associated statistics (such as the longest, shortest, and count of values) as values.
+    This method writes a dictionary of field statistics to a CSV file. The dictionary contains object types
+    as keys and each object contains another dictionary with field names and their associated statistics 
+    (such as the longest, shortest, and count of values).
 
     Args:
-        data (dict): A dictionary where each key is a field name and the value is another dictionary containing
-                     'object', 'longest', 'shortest', and 'count' keys with corresponding statistics.
+        data (dict): A dictionary where each key is an object type, and the value is another dictionary containing
+                     field names as keys and 'longest', 'shortest', and 'count' keys with corresponding statistics.
         filename (str): The name of the CSV file to which the data will be written.
 
     Writes:
         A CSV file with the following headers: 'Object', 'Field', 'Longest', 'Shortest', 'Count'.
-        Each row in the CSV represents a field and its corresponding statistics.
+        Each row in the CSV represents a field and its corresponding statistics under a specific object type.
     """
 
-    # Define the header based on the keys in the first dictionary entry
-    headers = ['Object', 'Field', 'Longest', 'Shortest', 'Count']
+    # Define the header based on the new structure
+    headers = ['Object', 'Field', 'Longest', 'Shortest', 'Count', 'Type Info']
 
     # Open the file for writing
     with open(filename, mode='w', newline='') as file:
@@ -142,16 +144,19 @@ def write_dict_to_csv(data, filename):
         # Write the header
         writer.writerow(headers)
 
-        # Write the data rows
-        for field, stats in data.items():
-            row = [
-                stats['object'],     # Object name
-                field,               # Field name
-                stats['longest'],    # Longest value
-                stats['shortest'],   # Shortest value
-                stats['count']       # Count of occurrences
-            ]
-            writer.writerow(row)
+        # Iterate over the objects in the data
+        for cmd_name, fields in data.items():
+            # Iterate over each field in the object's field dictionary
+            for field, stats in fields.items():
+                row = [
+                    cmd_name,               # Object name (cmd_name)
+                    field,                  # Field name
+                    stats['longest'],       # Longest value
+                    stats['shortest'],      # Shortest value
+                    stats['count'],         # Count of occurrences
+                    stats['extraTypeInfo']  # Type of field
+                ]
+                writer.writerow(row)
 
 
 def generate_sf_queries(results_map):
@@ -165,7 +170,7 @@ def generate_sf_queries(results_map):
         list: A list of Salesforce CLI query strings.
     """
     queries = []
-    print("Generating all needed queries.")
+    print("Generating all queries.")
     for mdt, fields in results_map.items():
         if fields:  # Only generate queries for metadata types with fields
             field_names = ", ".join(field.get('name') for field in fields if field.get('name'))
@@ -188,7 +193,7 @@ def execute_query(query):
                       If the parsing fails, it returns None and logs an error message.
     """
 
-    print(f"Executing query: {query}")
+    # print(f"Executing query: {query}")
     process = subprocess.run(query, shell=True, capture_output=True, text=True)
 
     try:
@@ -199,18 +204,23 @@ def execute_query(query):
         return None
 
 
+
 def analyze_field_lengths(query_results, results_map):
     """
-    Analyze the field lengths in the query results and associate them with the corresponding command/query.
-
+    Analyzes the lengths of field values in query results and updates statistics for each field.
+    
     Args:
-        query_results (list): A list of dictionaries containing the query results and their corresponding queries.
+        query_results (list): A list of dictionaries containing the results of Salesforce queries.
+        results_map (dict): A dictionary mapping each object (cmd_name) to a list of field metadata.
+                            This includes field names, types, lengths, and extra type information.
 
     Returns:
-        dict: A dictionary where each key is a query and each value is another dictionary with field names as keys
-              and a dictionary of statistics (longest, shortest, average) as values.
+        dict: A dictionary (stats) where each key is an object (cmd_name), and the value is another
+              dictionary containing statistics for each field in that object. Each field has statistics 
+              for 'longest', 'shortest', 'count' (number of occurrences), 'field_length' (the defined length 
+              or precision of the field), and 'extraTypeInfo' (e.g., Lookup or TextArea).
     """
-    field_stats = {}
+    stats = {}
 
     for result in query_results:
         if 'result' not in result or 'records' not in result['result']:
@@ -223,60 +233,75 @@ def analyze_field_lengths(query_results, results_map):
             # Extract the 'type' from 'attributes' if it exists
             if 'attributes' in record and 'type' in record['attributes']:
                 cmd_name = record['attributes']['type']
+            else:
+                cmd_name = "Unknown"  # Fallback if type isn't available
 
+            # Initialize stats for this object type if it doesn't exist yet
+            if cmd_name not in stats:
+                stats[cmd_name] = {}
+
+            # Process each field in the record
             for field, value in record.items():
                 if field == "attributes":
                     continue
 
-                all_fields = results_map.get(cmd_name)
-                # print( all_fields)
+                all_fields = results_map.get(cmd_name, [])
                 current_field_length = 0
+                extraTypeInfo = ''
+                # Check for the field in the results_map to get the defined length
                 for field_n in all_fields:
                     if field_n['name'] == field:
+                        if field_n['extraTypeInfo'] == 'externallookup':
+                            extraTypeInfo = 'Lookup'
+                        elif field_n['extraTypeInfo'] == 'plaintextarea':
+                            extraTypeInfo = 'TextArea'
+
                         if field_n['type'] == 'string':
                             current_field_length = field_n['length']
                         elif field_n['type'] == 'double':
                             current_field_length = field_n['precision']
+                        break
 
                 value_length = len(str(value)) if value is not None else 0
 
-                if field not in field_stats:
-                    field_stats[field] = {
+                # Initialize field stats if it's the first time encountering this field
+                if field not in stats[cmd_name]:
+                    stats[cmd_name][field] = {
                         'longest': value_length,
                         'shortest': value_length,
-                        'object': cmd_name,
                         'count': 1,
-                        'field_length': current_field_length
+                        'field_length': current_field_length,
+                        'extraTypeInfo': extraTypeInfo
                     }
                 else:
-                    field_stats[field]['longest'] = max(field_stats[field]['longest'], value_length)
-                    field_stats[field]['shortest'] = min(field_stats[field]['shortest'], value_length)
-                    field_stats[field]['object'] = cmd_name
-                    field_stats[field]['count'] += 1
+                    # Update the stats for this field
+                    stats[cmd_name][field]['longest'] = max(stats[cmd_name][field]['longest'], value_length)
+                    stats[cmd_name][field]['shortest'] = min(stats[cmd_name][field]['shortest'], value_length)
+                    stats[cmd_name][field]['count'] += 1
 
-    return field_stats
+    return stats
 
 
-def print_markdown_table(field_stats):
+def print_markdown_table(stats):
     """
     This method prints a Markdown-formatted table displaying field statistics.
     The table includes columns for object names, field names, longest values, shortest values, 
     field lengths, and counts.
 
     Args:
-        field_stats (dict): A dictionary where each key is a field name and the value is another dictionary 
-                            containing 'object', 'longest', 'shortest', 'field_length', and 'count' 
-                            with corresponding statistics.
+        stats (dict): A dictionary where each key is an object type, and the value is another dictionary 
+                      containing field names as keys, and each field has 'longest', 'shortest', 'field_length', 
+                      and 'count' keys with corresponding statistics.
 
     Prints:
         A Markdown table with headers and rows formatted based on the field statistics provided.
     """
 
     # Define the headers
-    headers = ["Object", "Field", "Longest", "Shortest", "Length", "Count"]
+    headers = ["Object", "Field", "Longest", "Shortest", "Length", "Count" , "Type Info"]
 
     # Create the header line with specified widths
-    header_line = f"|{headers[0]:<50} | {headers[1]:<50} | {headers[2]:<10} | {headers[3]:<10} | {headers[4]:<10}| {headers[5]:<5}|"
+    header_line = f"|{headers[0]:<60} | {headers[1]:<50} | {headers[2]:<10} | {headers[3]:<10} | {headers[4]:<10} | {headers[5]:<6} | {headers[6]:<10}"
 
     # Create the separator line based on the length of the header line
     separator = "-" * len(header_line)
@@ -284,10 +309,13 @@ def print_markdown_table(field_stats):
     # Initialize the markdown table with the header and separator
     markdown_table = header_line + "\n" + separator + "\n"
 
-    # Add each field's data to the markdown table
-    for field, attributes in field_stats.items():
-        markdown_table += f"|{attributes['object']:<50} | {field:<50} | {attributes['longest']:<10} | {attributes['shortest']:<10} | {attributes['field_length']:<10}| {attributes['count']:<5}|\n"
+    # Iterate over the object types in the stats dictionary
+    for cmd_name, fields in stats.items():
+        # Iterate over each field in the object's field dictionary
+        for field, attributes in fields.items():
+            markdown_table += f"|{cmd_name:<60} | {field:<50} | {attributes['longest']:<10} | {attributes['shortest']:<10} | {attributes['field_length']:<10} | {attributes['count']:<6} | {attributes['extraTypeInfo']:<10}\n"
 
+        markdown_table += separator + "\n"
     # Print the markdown table
     print(markdown_table)
 
