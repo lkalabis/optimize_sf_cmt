@@ -1,6 +1,7 @@
 # Salesforce Custom Metadata Analyzer
 
 This script is designed to analyze your Salesforce Custome Metadata. It retrieves metadata information, generates queries, executes them, and outputs field statistics either to a CSV file or as a Markdown table.
+
 More information about the idea etc. can be found in my blog post about this topic. 
 
 ## Features
@@ -60,6 +61,10 @@ python analyze_cmt.py -l MyCustomMetadataType1__mdt MyCustomMetadataType2__mdt
 python analyze_cmt.py -f -m -c -o all_of_my_results.csv
 ```
 
+```sh
+python analyze_cmt.py -m -l My_Custom_Metadata_Type__mdt Yet_Another_Custom_Metdata_Type__mdt
+```
+
 ## Example Output
 
 ```text
@@ -74,7 +79,4 @@ python analyze_cmt.py -f -m -c -o all_of_my_results.csv
 | Config__mdt | Configuration__c | 0       | 0        | 255    | 36    |            |
 | …           | …                | …       | …        | …      | …     | …          |
 +-------------+------------------+---------+----------+--------+-------+------------|
-```
-```sh
-python analyze_cmt.py -m -l My_Custom_Metadata_Type__mdt Yet_Another_Custom_Metdata_Type__mdt
 ```
